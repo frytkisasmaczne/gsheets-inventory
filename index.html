@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GSheets Inventory</title>
+  <meta name="description" content="Client-side inventory check-in app using Google Sheets and QR scanning." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js" defer></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: 'Inter', sans-serif;
+      background: #f8fafc;
+      color: #111827;
+      --bg: #ffffff;
+      --surface: #ffffff;
+      --surface-strong: #f1f5f9;
+      --border: #e2e8f0;
+      --text: #111827;
+      --muted: #64748b;
+      --accent: #2563eb;
+      --accent-strong: #1d4ed8;
+      --success: #16a34a;
+      --warning: #f59e0b;
+      --danger: #dc2626;
+      --radius: 18px;
+      --shadow: 0 30px 60px rgba(15, 23, 42, 0.08);
+    }
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; margin: 0; }
+    body { background: var(--bg); margin: 0; padding: 0; }
+    .page { max-width: 1220px; margin: 0 auto; padding: 18px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 22px; margin-bottom: 18px; }
+    .card h2 { margin-top: 0; margin-bottom: 14px; font-size: 1.28rem; }
+    .grid { display: grid; gap: 18px; }
+    .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .button { border: 0; color: #fff; background: var(--accent); border-radius: 999px; padding: 12px 18px; cursor: pointer; font-weight: 600; transition: transform .15s ease, background .15s ease; }
+    .button:hover { background: var(--accent-strong); transform: translateY(-1px); }
+    .button-secondary { background: #f1f5f9; color: var(--text); border: 1px solid var(--border); }
+    .button-secondary:hover { background: #e2e8f0; }
+    .field { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; font-size: 1rem; color: var(--text); background: #f8fafc; }
+    .field:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(37,99,235,.12); }
+    .muted { color: var(--muted); }
+    .small { font-size: .95rem; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 999px; background: #eff6ff; color: var(--accent-strong); font-size: .95rem; }
+    .badge { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 999px; background: #f8fafc; color: var(--muted); font-size: .9rem; }
+    .list { list-style: none; padding: 0; margin: 0; }
+    .list-item { padding: 14px 16px; border-radius: 16px; border: 1px solid var(--border); margin-bottom: 12px; background: var(--surface-strong); }
+    .list-item strong { display: block; margin-bottom: 6px; }
+    .space-y-4 > * + * { margin-top: 16px; }
+    .status { padding: 12px 16px; border-radius: 14px; background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe; }
+    .status.error { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+    .status.positive { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
+    .summary-line { display: flex; justify-content: space-between; gap: 10px; }
+    .summary-line span { font-size: .96rem; }
+    .summary-line strong { font-size: 1rem; }
+    .note { color: var(--muted); font-size: .96rem; }
+    .section-title { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .section-title h2 { margin: 0; }
+    .text-button { background: transparent; border: none; color: var(--accent); cursor: pointer; font-size: .95rem; font-weight: 600; padding: 0; }
+    .chip { display: inline-flex; gap: 6px; align-items: center; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--border); background: #fff; font-size: .92rem; }
+    #reader { border-radius: 22px; overflow: hidden; background: #000; min-height: 260px; }
+    .code-pill { display: inline-flex; gap: 8px; align-items: center; padding: 9px 12px; border-radius: 999px; background: #eff6ff; color: #1d4ed8; font-weight: 600; }
+    @media (max-width: 900px) { .grid-cols-2 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body x-data="inventoryApp()" x-init="init()">
+  <div class="page">
+    <div class="card">
+      <div class="section-title">
+        <div>
+          <p class="muted">GSHEETS INVENTORY</p>
+          <h1 style="margin:0; font-size:2rem;">Inventory check with Google Sheets</h1>
+        </div>
+        <button class="button" @click="showSettings = !showSettings" x-text="showSettings ? 'Hide settings' : 'Show settings'"></button>
+      </div>
+      <p class="note">Open on your phone and allow the camera for QR scanning. Settings are stored in your browser so the app stays configured across visits.</p>
+    </div>
+
+    <div class="grid grid-cols-2">
+      <div class="card">
+        <div class="section-title">
+          <h2>Google Drive &amp; Sheets</h2>
+          <span class="pill" x-text="signedIn ? 'Signed in' : 'Signed out'"></span>
+        </div>
+        <template x-if="showSettings">
+          <div class="space-y-4">
+            <label>
+              <div class="small">Google OAuth Client ID</div>
+              <input class="field" type="text" placeholder="Enter your OAuth Client ID" x-model="clientId" @change="saveSettings()" />
+            </label>
+            <div class="grid" style="grid-template-columns: 1fr auto; gap:12px; margin-bottom:12px;">
+              <button class="button" @click="signIn()">Connect Google</button>
+              <button type="button" class="button button-secondary" @click="signOut()">Disconnect</button>
+            </div>
+            <p class="note">Use a Google Cloud OAuth Client ID for browser apps. If you don’t have one, create it in your Google Cloud Console and add the origin below to your authorized JavaScript origins.</p>
+            <p class="note"><strong>Current origin:</strong> <code x-text="currentOrigin"></code></p>
+          </div>
+        </template>
+
+        <div class="status" :class="statusClass" x-text="statusMessage"></div>
+        <div class="summary-line" style="margin-top:16px;">
+          <span>Selected scan sheet</span>
+          <strong x-text="selectedScanSheet ? selectedScanSheet.name : 'None' "></strong>
+        </div>
+        <div class="summary-line">
+          <span>Selected master list</span>
+          <strong x-text="selectedMasterSheet ? selectedMasterSheet.name : 'None' "></strong>
+        </div>
+        <div class="summary-line">
+          <span>Known master codes</span>
+          <strong x-text="masterCodes.length"></strong>
+        </div>
+        <div style="margin-top: 18px; display:flex; gap:12px; flex-wrap:wrap;">
+          <button class="button button-secondary" @click="refreshDriveSheets()">Refresh sheets</button>
+          <button class="button button-secondary" @click="loadMasterValues()" :disabled="!selectedMasterSheet">Reload master</button>
+          <button class="button" @click="openSelectedSheet(selectedScanSheet)" :disabled="!selectedScanSheet">Open scan sheet</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">
+          <div>
+            <h2>Recent sheets</h2>
+            <p class="note">Tap a recent item to select it quickly.</p>
+          </div>
+        </div>
+        <ul class="list">
+          <template x-if="recentSheets.length === 0">
+            <li class="list-item"><span class="muted">No recent sheets saved yet.</span></li>
+          </template>
+          <template x-for="sheet in recentSheets" :key="sheet.id">
+            <li class="list-item" style="display:grid; gap:10px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+                <div>
+                  <div><strong x-text="sheet.name"></strong></div>
+                  <div class="note" x-text="sheet.purpose"></div>
+                </div>
+                <div>
+                  <button class="button button-secondary" @click="selectRecent(sheet)">Select</button>
+                </div>
+              </div>
+            </li>
+          </template>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card" x-show="signedIn" x-transition>
+      <div class="section-title">
+        <div>
+          <h2>Available Google Sheets</h2>
+          <p class="note">Pick a sheet to use for scanning or as your master reference.</p>
+        </div>
+        <button class="button button-secondary" @click="refreshDriveSheets()">Reload</button>
+      </div>
+      <template x-if="driveSheets.length === 0">
+        <div class="status">No spreadsheets found in your Google Drive yet.</div>
+      </template>
+      <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 14px;">
+        <div>
+          <h3 style="margin-top:0;">Scan targets</h3>
+          <template x-for="sheet in driveSheets.slice(0, 7)" :key="sheet.id">
+            <button class="button button-secondary" style="width:100%; text-align:left; margin-bottom:10px;" @click="setScanSheet(sheet)">
+              <strong x-text="sheet.name"></strong>
+              <div class="note" x-text="formatDate(sheet.modifiedTime)"></div>
+            </button>
+          </template>
+        </div>
+        <div>
+          <h3 style="margin-top:0;">Master lists</h3>
+          <template x-for="sheet in driveSheets.slice(0, 7)" :key="sheet.id + '-m'">
+            <button class="button button-secondary" style="width:100%; text-align:left; margin-bottom:10px;" @click="setMasterSheet(sheet)">
+              <strong x-text="sheet.name"></strong>
+              <div class="note" x-text="formatDate(sheet.modifiedTime)"></div>
+            </button>
+          </template>
+        </div>
+      </div>
+      <div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+        <input class="field" style="flex:1;" type="text" placeholder="New sheet name" x-model="newSheetName" />
+        <button class="button" @click="createSheet('scan')">Create scan sheet</button>
+        <button class="button" @click="createSheet('master')">Create master sheet</button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2">
+      <div class="card">
+        <div class="section-title">
+          <div>
+            <h2>Scan &amp; Input</h2>
+            <p class="note">Scan or enter codes one by one. Duplicates are highlighted.</p>
+          </div>
+          <button class="button button-secondary" @click="toggleScanner()" x-text="scannerRunning ? 'Stop camera' : 'Start camera'"></button>
+        </div>
+        <div id="reader" x-show="scannerAvailable"></div>
+        <div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap;">
+          <input class="field" type="text" placeholder="Type or paste code" x-model="scanCodeText" @keyup.enter="submitManualCode()" />
+          <button class="button" @click="submitManualCode()">Add code</button>
+        </div>
+        <div class="status" x-show="lastScanMessage" :class="lastScanError ? 'error' : 'positive'" x-text="lastScanMessage"></div>
+        <div style="margin-top:16px;" class="summary-line">
+          <span>Session scanned</span>
+          <strong x-text="scannedItems.length"></strong>
+        </div>
+        <div style="margin-top:10px;">
+          <template x-if="scannedItems.length === 0">
+            <p class="note">No codes scanned yet.</p>
+          </template>
+          <template x-for="item in scannedItems.slice(0, 12)" :key="item.code + item.timeStamp">
+            <div class="list-item" :style="item.duplicate ? 'border-color: #fca5a5; background: #fef2f2;' : item.known ? 'border-color: #bef264; background: #ecfccb;' : 'border-color: #cbd5e1; background: #f8fafc;'">
+              <div style="display:flex; justify-content:space-between; gap:10px; align-items:center;">
+                <span class="code-pill" x-text="item.code"></span>
+                <span class="badge" x-text="item.duplicate ? 'Duplicate' : item.known ? 'Known' : 'Unknown'"></span>
+              </div>
+              <div class="note" x-text="item.timeText"></div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">
+          <div>
+            <h2>Master reference</h2>
+            <p class="note">The app checks every scanned code against this master list.</p>
+          </div>
+        </div>
+        <div class="summary-line">
+          <span>Loaded records</span>
+          <strong x-text="masterCodes.length"></strong>
+        </div>
+        <p class="note">Use the master sheet to store your full inventory reference list in column A. The app reads the first sheet and first column.</p>
+        <div style="margin-top:18px;">
+          <button class="button" @click="loadMasterValues()" :disabled="!selectedMasterSheet">Reload master data</button>
+          <button class="button button-secondary" @click="openSelectedSheet(selectedMasterSheet)" :disabled="!selectedMasterSheet">Open master sheet</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">
+        <div>
+          <h2>How to use</h2>
+        </div>
+      </div>
+      <ol class="note" style="padding-left: 18px;">
+        <li>Set your Google OAuth client ID and connect your account.</li>
+        <li>Choose or create a scan sheet and a master reference sheet.</li>
+        <li>Open the app on your phone, start the camera, and scan QR codes.</li>
+        <li>If a code is duplicate, the app warns you immediately.</li>
+        <li>The scan sheet grows automatically with each new code.</li>
+      </ol>
+    </div>
+  </div>
+
+  <script>
+    function inventoryApp() {
+      let tokenClient = null;
+      const tokenStorageKey = 'gsinv-token';
+      return {
+        clientId: '',
+        accessToken: '',
+        signedIn: false,
+        signedInAt: null,
+        statusMessage: 'Enter your Google OAuth Client ID to start.',
+        statusClass: '',
+        driveSheets: [],
+        recentSheets: [],
+        selectedScanSheet: null,
+        selectedMasterSheet: null,
+        currentOrigin: '',
+        newSheetName: '',
+        masterCodes: [],
+        scanCodeText: '',
+        lastScanMessage: '',
+        lastScanError: false,
+        scannedItems: [],
+        scanner: null,
+        scannerRunning: false,
+        scannerAvailable: true,
+        showSettings: true,
+        init() {
+          this.loadSettings();
+          this.currentOrigin = window.location.protocol === 'file:' ? 'file://' : location.origin;
+          if (window.location.protocol === 'file:' || location.origin === 'null') {
+            this.updateStatus('Google login cannot run from file:// origin. Serve the app from HTTP(S) or GitHub Pages and add that origin to your Google OAuth authorized origins.', true);
+          } else {
+            this.updateStatus('Ready — current origin: ' + this.currentOrigin);
+          }
+          if (this.isTokenStored()) {
+            this.updateStatus('Signed in from saved session. Loading sheets...');
+            this.refreshDriveSheets();
+          }
+          this.waitForGis();
+        },
+        waitForGis() {
+          const interval = setInterval(() => {
+            if (window.google && google.accounts && google.accounts.oauth2) {
+              clearInterval(interval);
+              if (this.clientId) {
+                this.prepareTokenClient();
+              }
+            }
+          }, 120);
+        },
+        saveSettings() {
+          const payload = {
+            clientId: this.clientId || '',
+            selectedScanSheet: this.selectedScanSheet,
+            selectedMasterSheet: this.selectedMasterSheet,
+            recentSheets: this.recentSheets,
+          };
+          localStorage.setItem('gsinv-settings', JSON.stringify(payload));
+        },
+        loadSettings() {
+          try {
+            const raw = localStorage.getItem('gsinv-settings');
+            if (!raw) return;
+            const payload = JSON.parse(raw);
+            this.clientId = payload.clientId || '';
+            this.selectedScanSheet = payload.selectedScanSheet || null;
+            this.selectedMasterSheet = payload.selectedMasterSheet || null;
+            this.recentSheets = payload.recentSheets || [];
+          } catch (error) {
+            console.warn('Unable to read settings', error);
+          }
+        },
+        isTokenStored() {
+          try {
+            const raw = sessionStorage.getItem(tokenStorageKey);
+            if (!raw) return false;
+            const payload = JSON.parse(raw);
+            if (!payload.accessToken || !payload.expiresAt) return false;
+            if (Date.now() > payload.expiresAt) {
+              sessionStorage.removeItem(tokenStorageKey);
+              return false;
+            }
+            this.accessToken = payload.accessToken;
+            this.signedIn = true;
+            this.signedInAt = payload.signedInAt || new Date().toISOString();
+            return true;
+          } catch (error) {
+            console.warn('Unable to read stored token', error);
+            return false;
+          }
+        },
+        storeToken(tokenResponse) {
+          const expiresIn = Number(tokenResponse.expires_in || 3600);
+          const payload = {
+            accessToken: tokenResponse.access_token,
+            expiresAt: Date.now() + expiresIn * 1000,
+            signedInAt: new Date().toISOString()
+          };
+          sessionStorage.setItem(tokenStorageKey, JSON.stringify(payload));
+        },
+        prepareTokenClient() {
+          if (!this.clientId) return;
+          tokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: this.clientId,
+            scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/spreadsheets',
+            callback: (tokenResponse) => {
+              console.log('Google token response', tokenResponse);
+              if (tokenResponse.error) {
+                this.updateStatus('Authentication failed. ' + (tokenResponse.error_description || tokenResponse.error), true);
+                return;
+              }
+              if (!tokenResponse.access_token) {
+                this.updateStatus('Authentication returned without an access token.', true);
+                return;
+              }
+              this.storeToken(tokenResponse);
+              this.accessToken = tokenResponse.access_token;
+              this.signedIn = true;
+              this.signedInAt = new Date().toISOString();
+              this.updateStatus('Connected to Google Drive.');
+              this.saveSettings();
+              this.refreshDriveSheets();
+              if (this.selectedMasterSheet) {
+                this.loadMasterValues();
+              }
+              if (this.selectedScanSheet) {
+                this.loadExistingScanItems();
+              }
+            }
+          });
+        },
+        signIn() {
+          if (!this.clientId) {
+            this.updateStatus('Please enter a valid Google OAuth Client ID first.', true);
+            return;
+          }
+          if (window.location.protocol === 'file:' || location.origin === 'null') {
+            this.updateStatus('Cannot sign in from file:// origin. Use GitHub Pages or a local HTTP server and authorize that origin in Google Cloud.', true);
+            return;
+          }
+          if (!window.google || !google.accounts || !google.accounts.oauth2) {
+            this.updateStatus('Google Identity Services is still loading. Please wait.', true);
+            return;
+          }
+          this.prepareTokenClient();
+          this.updateStatus('Requesting Google permissions...');
+          console.log('Requesting access token with client ID:', this.clientId);
+          tokenClient.requestAccessToken();
+          console.log('Token client request initiated.');
+        },
+        signOut() {
+          this.accessToken = '';
+          this.signedIn = false;
+          sessionStorage.removeItem(tokenStorageKey);
+          this.updateStatus('Signed out. Refresh the page to clear session if needed.');
+        },
+        setScanSheet(sheet) {
+          this.selectedScanSheet = sheet;
+          this.rememberSheet(sheet, 'scan');
+          this.saveSettings();
+          this.loadExistingScanItems();
+          this.updateStatus('Scan sheet selected: ' + sheet.name);
+        },
+        setMasterSheet(sheet) {
+          this.selectedMasterSheet = sheet;
+          this.rememberSheet(sheet, 'master');
+          this.saveSettings();
+          this.loadMasterValues();
+          this.updateStatus('Master sheet selected: ' + sheet.name);
+        },
+        selectRecent(sheet) {
+          if (!sheet) return;
+          if (sheet.purpose === 'scan') {
+            this.setScanSheet(sheet);
+          } else if (sheet.purpose === 'master') {
+            this.setMasterSheet(sheet);
+          } else {
+            this.selectedScanSheet = sheet;
+            this.saveSettings();
+            this.updateStatus('Selected recent sheet: ' + sheet.name);
+          }
+        },
+        rememberSheet(sheet, purpose) {
+          if (!sheet) return;
+          const existing = this.recentSheets.find(item => item.id === sheet.id && item.purpose === purpose);
+          if (!existing) {
+            this.recentSheets.unshift({ id: sheet.id, name: sheet.name, purpose, modifiedTime: sheet.modifiedTime });
+            if (this.recentSheets.length > 10) this.recentSheets.splice(10);
+          }
+          this.saveSettings();
+        },
+        refreshDriveSheets() {
+          if (!this.signedIn || !this.accessToken) {
+            this.updateStatus('Sign in first to refresh the list of sheets.', true);
+            return;
+          }
+          this.updateStatus('Loading sheets from Google Drive...');
+          fetch('https://www.googleapis.com/drive/v3/files?q=mimeType%3D%27application%2Fvnd.google-apps.spreadsheet%27+and+trashed%3Dfalse&orderBy=modifiedTime+desc&pageSize=50&fields=files(id%2Cname%2CmodifiedTime)', {
+            headers: { Authorization: 'Bearer ' + this.accessToken }
+          })
+            .then(response => response.json())
+            .then(result => {
+              if (result.error) {
+                throw new Error(result.error.message || 'Unable to load sheets.');
+              }
+              this.driveSheets = result.files || [];
+              if (this.driveSheets.length === 0) {
+                this.updateStatus('No Google Sheets found in Drive.', true);
+              } else {
+                this.updateStatus('Loaded ' + this.driveSheets.length + ' sheets.');
+              }
+            })
+            .catch(error => {
+              console.error(error);
+              this.updateStatus(error.message || 'Failed to fetch Google Sheets.', true);
+            });
+        },
+        async createSheet(type) {
+          if (!this.signedIn || !this.accessToken) {
+            this.updateStatus('Sign in before creating a sheet.', true);
+            return;
+          }
+          const name = this.newSheetName.trim() || (type === 'scan' ? 'Inventory Scan Sheet' : 'Inventory Master Sheet');
+          this.updateStatus('Creating new sheet...');
+          try {
+            const response = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
+              method: 'POST',
+              headers: {
+                Authorization: 'Bearer ' + this.accessToken,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ properties: { title: name } })
+            });
+            const data = await response.json();
+            if (data.error) throw new Error(data.error.message || 'Could not create sheet.');
+            const sheet = { id: data.spreadsheetId, name: data.properties.title, modifiedTime: new Date().toISOString() };
+            this.driveSheets.unshift(sheet);
+            if (type === 'scan') this.setScanSheet(sheet); else this.setMasterSheet(sheet);
+            this.newSheetName = '';
+            this.updateStatus('Created sheet: ' + sheet.name);
+          } catch (error) {
+            console.error(error);
+            this.updateStatus(error.message || 'Create sheet failed.', true);
+          }
+        },
+        async loadMasterValues() {
+          if (!this.selectedMasterSheet || !this.signedIn || !this.accessToken) {
+            this.updateStatus('Select a master sheet and sign in first.', true);
+            return;
+          }
+          this.updateStatus('Loading master inventory codes...');
+          try {
+            const title = await this.getFirstSheetName(this.selectedMasterSheet.id);
+            if (!title) throw new Error('Unable to detect sheet name.');
+            const values = await this.fetchSheetValues(this.selectedMasterSheet.id, `${encodeURIComponent(title)}!A:A`);
+            this.masterCodes = values.filter(code => code !== '');
+            this.updateStatus('Master list loaded with ' + this.masterCodes.length + ' codes.');
+          } catch (error) {
+            console.error(error);
+            this.masterCodes = [];
+            this.updateStatus('Failed to load master list: ' + (error.message || 'unknown error'), true);
+          }
+        },
+        async loadExistingScanItems() {
+          if (!this.selectedScanSheet || !this.signedIn || !this.accessToken) return;
+          try {
+            const title = await this.getFirstSheetName(this.selectedScanSheet.id);
+            if (!title) return;
+            const values = await this.fetchSheetValues(this.selectedScanSheet.id, `${encodeURIComponent(title)}!A:A`);
+            const codes = values.filter(code => code !== '');
+            this.scannedItems = [];
+            codes.reverse().forEach(code => {
+              const duplicate = this.scannedItems.some(item => item.code === code);
+              this.scannedItems.push({ code, duplicate, known: this.masterCodes.includes(code), timeStamp: new Date().toISOString(), timeText: 'Loaded from sheet' });
+            });
+            this.updateStatus('Loaded scan history from selected sheet.');
+          } catch (error) {
+            console.warn('Could not load scan history', error);
+          }
+        },
+        async getFirstSheetName(sheetId) {
+          const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets(properties(title))`, {
+            headers: { Authorization: 'Bearer ' + this.accessToken }
+          });
+          const data = await response.json();
+          if (data.error) throw new Error(data.error.message || 'Failed to read sheet metadata.');
+          return data.sheets?.[0]?.properties?.title || null;
+        },
+        async fetchSheetValues(sheetId, range) {
+          const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}`, {
+            headers: { Authorization: 'Bearer ' + this.accessToken }
+          });
+          const data = await response.json();
+          if (data.error) throw new Error(data.error.message || 'Unable to fetch values.');
+          return (data.values || []).map(row => String(row[0] || '').trim()).filter((row, idx) => idx === 0 || row !== '');
+        },
+        async appendScanRecord(code) {
+          if (!this.selectedScanSheet || !this.signedIn || !this.accessToken) return;
+          try {
+            const title = await this.getFirstSheetName(this.selectedScanSheet.id);
+            if (!title) throw new Error('Unable to detect scan sheet name.');
+            const result = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${this.selectedScanSheet.id}/values/${encodeURIComponent(title)}!A:A:append?valueInputOption=RAW`, {
+              method: 'POST',
+              headers: {
+                Authorization: 'Bearer ' + this.accessToken,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ values: [[code]] })
+            });
+            const data = await result.json();
+            if (data.error) throw new Error(data.error.message || 'Could not append row.');
+          } catch (error) {
+            console.error(error);
+            this.updateStatus('Failed to save code to sheet: ' + (error.message || 'unknown'), true);
+          }
+        },
+        submitManualCode() {
+          const rawCode = this.scanCodeText.trim();
+          if (!rawCode) {
+            this.updateScanStatus('Enter a code before submitting.', true);
+            return;
+          }
+          this.processCode(rawCode);
+          this.scanCodeText = '';
+        },
+        processCode(rawCode) {
+          const code = String(rawCode).trim();
+          if (!code) return;
+          const duplicate = this.scannedItems.some(item => item.code === code);
+          const known = this.masterCodes.includes(code);
+          const details = { code, duplicate, known, timeStamp: new Date().toISOString(), timeText: new Date().toLocaleTimeString() };
+          if (duplicate) {
+            this.scannedItems.unshift(details);
+            this.updateScanStatus('Duplicate code detected: ' + code, true);
+            return;
+          }
+          this.scannedItems.unshift(details);
+          this.appendScanRecord(code);
+          this.updateScanStatus(known ? 'Scanned: ' + code : 'Scanned unknown: ' + code, false);
+          if (this.scannedItems.length > 100) this.scannedItems.pop();
+        },
+        async toggleScanner() {
+          if (this.scannerRunning) {
+            this.stopScanner();
+            return;
+          }
+          if (!this.selectedScanSheet) {
+            this.updateStatus('Select a scan sheet before using the camera.', true);
+            return;
+          }
+          try {
+            if (!this.scanner) {
+              this.scanner = new Html5Qrcode('reader');
+            }
+            await this.scanner.start(
+              { facingMode: 'environment' },
+              { fps: 10, qrbox: { width: 280, height: 280 }, experimentalFeatures: { useBarCodeDetectorIfSupported: true } },
+              (decodedText) => { this.processCode(decodedText); }
+            );
+            this.scannerRunning = true;
+            this.scannerAvailable = true;
+            this.updateStatus('Camera ready. Scan a code.')
+          } catch (error) {
+            console.error(error);
+            this.scannerAvailable = false;
+            this.updateStatus('Camera unavailable or permission denied.', true);
+          }
+        },
+        async stopScanner() {
+          if (this.scanner) {
+            await this.scanner.stop();
+            this.scanner.clear();
+          }
+          this.scannerRunning = false;
+        },
+        openSelectedSheet(sheet) {
+          if (!sheet) return;
+          window.open('https://docs.google.com/spreadsheets/d/' + sheet.id, '_blank');
+        },
+        updateStatus(message, isError = false) {
+          this.statusMessage = message;
+          this.statusClass = isError ? 'error' : 'positive';
+          if (!message) this.statusClass = '';
+        },
+        updateScanStatus(message, isError = false) {
+          this.lastScanMessage = message;
+          this.lastScanError = isError;
+          setTimeout(() => { this.lastScanMessage = ''; }, 4200);
+        },
+        formatDate(value) {
+          if (!value) return '';
+          const date = new Date(value);
+          return isNaN(date.getTime()) ? value : date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+      }
+    }
+  </script>
+</body>
+</html>
