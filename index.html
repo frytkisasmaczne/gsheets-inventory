@@ -7,21 +7,22 @@
   <meta name="description" content="Client-side inventory check-in app using Google Sheets and QR scanning." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js" defer></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
     :root {
       color-scheme: light;
-      font-family: 'Inter', sans-serif;
-      background: #f8fafc;
-      color: #111827;
-      --bg: #ffffff;
+      font-family: 'Zen Kaku Gothic New', 'IBM Plex Sans', sans-serif;
+      background: #0f172a;
+      color: #0f172a;
+      --bg: #0f172a;
       --surface: #ffffff;
       --surface-strong: #f1f5f9;
+      --surface-dark: #0b1220;
       --border: #e2e8f0;
-      --text: #111827;
+      --text: #0f172a;
       --muted: #64748b;
       --accent: #2563eb;
       --accent-strong: #1d4ed8;
@@ -29,233 +30,385 @@
       --warning: #f59e0b;
       --danger: #dc2626;
       --radius: 18px;
-      --shadow: 0 30px 60px rgba(15, 23, 42, 0.08);
+      --shadow: 0 30px 60px rgba(15, 23, 42, 0.12);
+      --glow: 0 20px 40px rgba(37, 99, 235, 0.25);
     }
     * { box-sizing: border-box; }
     html, body { min-height: 100%; margin: 0; }
-    body { background: var(--bg); margin: 0; padding: 0; }
-    .page { max-width: 1220px; margin: 0 auto; padding: 18px; }
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 22px; margin-bottom: 18px; }
-    .card h2 { margin-top: 0; margin-bottom: 14px; font-size: 1.28rem; }
-    .grid { display: grid; gap: 18px; }
-    .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    body {
+      background: radial-gradient(circle at top, #1e293b 0%, #0f172a 55%, #0b1120 100%);
+      margin: 0;
+      padding: 0;
+    }
+    .app-shell {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      color: #e2e8f0;
+    }
+    .app-header {
+      padding: 18px 18px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(15, 23, 42, 0.75) 100%);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+    }
+    .brand-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .brand-sub {
+      color: #94a3b8;
+      font-size: 0.85rem;
+    }
+    .nav-tabs {
+      display: inline-flex;
+      gap: 6px;
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      padding: 4px;
+      border-radius: 999px;
+    }
+    .tab {
+      border: 0;
+      background: transparent;
+      color: #cbd5f5;
+      padding: 8px 14px;
+      font-weight: 600;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .tab.active {
+      background: #e2e8f0;
+      color: #0f172a;
+      box-shadow: var(--glow);
+    }
+    .app-main {
+      flex: 1;
+      padding: 0 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .screen {
+      display: none;
+      animation: fadeUp 0.3s ease;
+    }
+    .screen.active { display: block; }
+    .camera-shell {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 24px;
+      padding: 16px;
+      min-height: 70vh;
+      box-shadow: var(--shadow);
+    }
+    .camera-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .chip {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      background: rgba(15, 23, 42, 0.5);
+      color: #e2e8f0;
+      font-size: 0.92rem;
+    }
+    .camera-stage {
+      position: relative;
+      background: #000;
+      border-radius: 20px;
+      overflow: hidden;
+      min-height: 52vh;
+      box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.15);
+    }
+    #reader {
+      height: 100%;
+      min-height: 52vh;
+    }
+    .camera-hint {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(15, 23, 42, 0.6);
+      color: #e2e8f0;
+      font-weight: 600;
+      text-align: center;
+      padding: 24px;
+    }
+    .scan-controls {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+    }
+    .scan-status {
+      padding: 10px 14px;
+      border-radius: 14px;
+      font-size: 0.95rem;
+      border: 1px solid transparent;
+    }
+    .scan-status.error { background: rgba(220, 38, 38, 0.16); border-color: rgba(248, 113, 113, 0.45); color: #fecaca; }
+    .scan-status.positive { background: rgba(34, 197, 94, 0.16); border-color: rgba(134, 239, 172, 0.45); color: #bbf7d0; }
+    .scan-summary {
+      display: grid;
+      gap: 10px;
+    }
+    .summary-card {
+      background: rgba(226, 232, 240, 0.08);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 18px;
+      padding: 14px;
+      color: #e2e8f0;
+    }
+    .summary-card.muted { color: #94a3b8; text-align: center; }
+    .summary-title { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.12em; color: #94a3b8; }
+    .summary-code { font-size: 1.4rem; font-weight: 700; margin: 6px 0; }
+    .summary-meta { display: flex; justify-content: space-between; color: #cbd5f5; font-size: 0.95rem; }
+    .summary-time { margin-top: 4px; color: #94a3b8; font-size: 0.85rem; }
+    .settings-grid {
+      display: grid;
+      gap: 16px;
+    }
+    .settings-card {
+      background: #ffffff;
+      color: var(--text);
+      border-radius: 22px;
+      padding: 18px;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
+    }
+    .settings-card h2 { margin: 0 0 12px; font-size: 1.1rem; }
+    .settings-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .list { list-style: none; padding: 0; margin: 0; }
+    .list-item { padding: 12px 14px; border-radius: 16px; border: 1px solid var(--border); margin-bottom: 10px; background: var(--surface-strong); }
+    .note { color: var(--muted); font-size: 0.95rem; }
+    .status { padding: 12px 16px; border-radius: 14px; background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe; }
+    .status.error { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+    .status.positive { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
     .button { border: 0; color: #fff; background: var(--accent); border-radius: 999px; padding: 12px 18px; cursor: pointer; font-weight: 600; transition: transform .15s ease, background .15s ease; }
     .button:hover { background: var(--accent-strong); transform: translateY(-1px); }
     .button-secondary { background: #f1f5f9; color: var(--text); border: 1px solid var(--border); }
     .button-secondary:hover { background: #e2e8f0; }
+    .button-danger { background: #dc2626; }
+    .button-danger:hover { background: #b91c1c; }
     .field { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; font-size: 1rem; color: var(--text); background: #f8fafc; }
     .field:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(37,99,235,.12); }
-    .muted { color: var(--muted); }
-    .small { font-size: .95rem; }
-    .pill { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 999px; background: #eff6ff; color: var(--accent-strong); font-size: .95rem; }
-    .badge { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 999px; background: #f8fafc; color: var(--muted); font-size: .9rem; }
-    .list { list-style: none; padding: 0; margin: 0; }
-    .list-item { padding: 14px 16px; border-radius: 16px; border: 1px solid var(--border); margin-bottom: 12px; background: var(--surface-strong); }
-    .list-item strong { display: block; margin-bottom: 6px; }
-    .space-y-4 > * + * { margin-top: 16px; }
-    .status { padding: 12px 16px; border-radius: 14px; background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe; }
-    .status.error { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
-    .status.positive { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
-    .summary-line { display: flex; justify-content: space-between; gap: 10px; }
-    .summary-line span { font-size: .96rem; }
-    .summary-line strong { font-size: 1rem; }
-    .note { color: var(--muted); font-size: .96rem; }
-    .section-title { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
-    .section-title h2 { margin: 0; }
     .text-button { background: transparent; border: none; color: var(--accent); cursor: pointer; font-size: .95rem; font-weight: 600; padding: 0; }
-    .chip { display: inline-flex; gap: 6px; align-items: center; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--border); background: #fff; font-size: .92rem; }
-    #reader { border-radius: 22px; overflow: hidden; background: #000; min-height: 260px; }
-    .code-pill { display: inline-flex; gap: 8px; align-items: center; padding: 9px 12px; border-radius: 999px; background: #eff6ff; color: #1d4ed8; font-weight: 600; }
-    @media (max-width: 900px) { .grid-cols-2 { grid-template-columns: 1fr; } }
+    .action-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      z-index: 20;
+    }
+    .action-card {
+      background: #ffffff;
+      color: var(--text);
+      border-radius: 24px;
+      padding: 22px;
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+      box-shadow: var(--shadow);
+    }
+    .action-title { text-transform: uppercase; letter-spacing: 0.2em; font-size: 0.75rem; color: var(--muted); }
+    .action-code { font-size: 1.8rem; font-weight: 700; margin: 12px 0; }
+    .action-sub { color: var(--muted); margin-bottom: 16px; }
+    .action-buttons {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .action-buttons .button,
+    .action-buttons .button-secondary,
+    .action-buttons .button-danger {
+      font-size: 1.05rem;
+      padding: 16px 18px;
+      border-radius: 16px;
+      width: 100%;
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media (min-width: 900px) {
+      .settings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .settings-card.full { grid-column: 1 / -1; }
+    }
+    @media (max-width: 720px) {
+      .scan-controls { grid-template-columns: 1fr; }
+      .tab { padding: 8px 12px; }
+    }
   </style>
 </head>
 <body x-data="inventoryApp" x-init="init()">
-  <div class="page">
-    <div class="card">
-      <div class="section-title">
-        <div>
-          <p class="muted">GSHEETS INVENTORY</p>
-          <h1 style="margin:0; font-size:2rem;">Inventory check with Google Sheets</h1>
-        </div>
-        <button class="button" @click="showSettings = !showSettings" x-text="showSettings ? 'Hide settings' : 'Show settings'"></button>
+  <div class="app-shell">
+    <header class="app-header">
+      <div>
+        <div class="brand-title">GSheets Inventory</div>
+        <div class="brand-sub">Camera-first inventory</div>
       </div>
-      <p class="note">Open on your phone and allow the camera for QR scanning. Settings are stored in your browser so the app stays configured across visits.</p>
-    </div>
+      <div class="nav-tabs">
+        <button class="tab" :class="activeScreen === 'scan' ? 'active' : ''" @click="activeScreen = 'scan'">Scan</button>
+        <button class="tab" :class="activeScreen === 'settings' ? 'active' : ''" @click="activeScreen = 'settings'">Settings</button>
+      </div>
+    </header>
 
-    <div class="grid grid-cols-2">
-      <div class="card">
-        <div class="section-title">
-          <h2>Google Drive &amp; Sheets</h2>
-          <span class="pill" x-text="signedIn ? 'Signed in' : 'Signed out'"></span>
+    <main class="app-main">
+      <section class="screen" :class="activeScreen === 'scan' ? 'active' : ''">
+        <div class="camera-shell">
+          <div class="camera-header">
+            <div class="chip" x-text="selectedScanSheet ? 'Scan sheet: ' + selectedScanSheet.name : 'Select a scan sheet in Settings'"></div>
+            <button class="button button-secondary" @click="toggleScanner()" x-text="scannerRunning ? 'Stop camera' : 'Start camera'"></button>
+          </div>
+          <div class="camera-stage">
+            <div id="reader" x-show="scannerAvailable"></div>
+            <div class="camera-hint" x-show="!scannerRunning">Camera paused. Tap Start.</div>
+          </div>
+          <div class="scan-controls">
+            <input class="field" type="text" placeholder="Type or paste code" x-model="scanCodeText" @keyup.enter="submitManualCode()" />
+            <button class="button" @click="submitManualCode()">Submit</button>
+          </div>
+          <div class="scan-status" x-show="lastScanMessage" :class="lastScanError ? 'error' : 'positive'" x-text="lastScanMessage"></div>
+          <div class="scan-summary">
+            <template x-if="scannedItems.length > 0">
+              <div class="summary-card">
+                <div class="summary-title">Last action</div>
+                <div class="summary-code" x-text="scannedItems[0].code"></div>
+                <div class="summary-meta">
+                  <span x-text="scannedItems[0].action"></span>
+                  <span x-text="'Count: ' + scannedItems[0].count"></span>
+                </div>
+                <div class="summary-time" x-text="scannedItems[0].timeText"></div>
+              </div>
+            </template>
+            <template x-if="scannedItems.length === 0">
+              <div class="summary-card muted">No scan actions yet.</div>
+            </template>
+          </div>
         </div>
-        <template x-if="showSettings">
-          <div class="space-y-4">
+      </section>
+
+      <section class="screen" :class="activeScreen === 'settings' ? 'active' : ''">
+        <div class="settings-grid">
+          <div class="settings-card">
+            <h2>Google Drive</h2>
+            <div class="settings-row" style="margin-bottom:12px;">
+              <span class="status" :class="statusClass" x-text="statusMessage"></span>
+              <span class="chip" x-text="signedIn ? 'Signed in' : 'Signed out'"></span>
+            </div>
             <label>
-              <div class="small">Google OAuth Client ID</div>
+              <div class="note">Google OAuth Client ID</div>
               <input class="field" type="text" placeholder="Enter your OAuth Client ID" x-model="clientId" @change="saveSettings()" />
             </label>
-            <div class="grid" style="grid-template-columns: 1fr auto; gap:12px; margin-bottom:12px;">
+            <div class="settings-row" style="margin-top:12px;">
               <button class="button" @click="signIn()">Connect Google</button>
               <button type="button" class="button button-secondary" @click="signOut()">Disconnect</button>
             </div>
-            <p class="note">Use a Google Cloud OAuth Client ID for browser apps. If you don’t have one, create it in your Google Cloud Console and add the origin below to your authorized JavaScript origins.</p>
-            <p class="note"><strong>Current origin:</strong> <code x-text="currentOrigin"></code></p>
+            <p class="note" style="margin-top:12px;">Authorize this origin in Google Cloud: <strong x-text="currentOrigin"></strong></p>
           </div>
-        </template>
 
-        <div class="status" :class="statusClass" x-text="statusMessage"></div>
-        <div class="summary-line" style="margin-top:16px;">
-          <span>Selected scan sheet</span>
-          <strong x-text="selectedScanSheet ? selectedScanSheet.name : 'None' "></strong>
-        </div>
-        <div class="summary-line">
-          <span>Selected master list</span>
-          <strong x-text="selectedMasterSheet ? selectedMasterSheet.name : 'None' "></strong>
-        </div>
-        <div class="summary-line">
-          <span>Known master codes</span>
-          <strong x-text="masterCodes.length"></strong>
-        </div>
-        <div style="margin-top: 18px; display:flex; gap:12px; flex-wrap:wrap;">
-          <button class="button button-secondary" @click="refreshDriveSheets()">Refresh sheets</button>
-          <button class="button button-secondary" @click="loadMasterValues()" :disabled="!selectedMasterSheet">Reload master</button>
-          <button class="button" @click="openSelectedSheet(selectedScanSheet)" :disabled="!selectedScanSheet">Open scan sheet</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="section-title">
-          <div>
-            <h2>Recent sheets</h2>
-            <p class="note">Tap a recent item to select it quickly.</p>
-          </div>
-        </div>
-        <ul class="list">
-          <template x-if="recentSheets.length === 0">
-            <li class="list-item"><span class="muted">No recent sheets saved yet.</span></li>
-          </template>
-          <template x-for="sheet in recentSheets" :key="sheet.id">
-            <li class="list-item" style="display:grid; gap:10px;">
-              <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
-                <div>
-                  <div><strong x-text="sheet.name"></strong></div>
-                  <div class="note" x-text="sheet.purpose"></div>
-                </div>
-                <div>
-                  <button class="button button-secondary" @click="selectRecent(sheet)">Select</button>
-                </div>
-              </div>
-            </li>
-          </template>
-        </ul>
-      </div>
-    </div>
-
-    <div class="card" x-show="signedIn" x-transition>
-      <div class="section-title">
-        <div>
-          <h2>Available Google Sheets</h2>
-          <p class="note">Pick a sheet to use for scanning or as your master reference.</p>
-        </div>
-        <button class="button button-secondary" @click="refreshDriveSheets()">Reload</button>
-      </div>
-      <template x-if="driveSheets.length === 0">
-        <div class="status">No spreadsheets found in your Google Drive yet.</div>
-      </template>
-      <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 14px;">
-        <div>
-          <h3 style="margin-top:0;">Scan targets</h3>
-          <template x-for="sheet in driveSheets.slice(0, 7)" :key="sheet.id">
-            <button class="button button-secondary" style="width:100%; text-align:left; margin-bottom:10px;" @click="setScanSheet(sheet)">
-              <strong x-text="sheet.name"></strong>
-              <div class="note" x-text="formatDate(sheet.modifiedTime)"></div>
-            </button>
-          </template>
-        </div>
-        <div>
-          <h3 style="margin-top:0;">Master lists</h3>
-          <template x-for="sheet in driveSheets.slice(0, 7)" :key="sheet.id + '-m'">
-            <button class="button button-secondary" style="width:100%; text-align:left; margin-bottom:10px;" @click="setMasterSheet(sheet)">
-              <strong x-text="sheet.name"></strong>
-              <div class="note" x-text="formatDate(sheet.modifiedTime)"></div>
-            </button>
-          </template>
-        </div>
-      </div>
-      <div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-        <input class="field" style="flex:1;" type="text" placeholder="New sheet name" x-model="newSheetName" />
-        <button class="button" @click="createSheet('scan')">Create scan sheet</button>
-        <button class="button" @click="createSheet('master')">Create master sheet</button>
-      </div>
-    </div>
-
-    <div class="grid grid-cols-2">
-      <div class="card">
-        <div class="section-title">
-          <div>
-            <h2>Scan &amp; Input</h2>
-            <p class="note">Scan or enter codes one by one. Duplicates are highlighted.</p>
-          </div>
-          <button class="button button-secondary" @click="toggleScanner()" x-text="scannerRunning ? 'Stop camera' : 'Start camera'"></button>
-        </div>
-        <div id="reader" x-show="scannerAvailable"></div>
-        <div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap;">
-          <input class="field" type="text" placeholder="Type or paste code" x-model="scanCodeText" @keyup.enter="submitManualCode()" />
-          <button class="button" @click="submitManualCode()">Add code</button>
-        </div>
-        <div class="status" x-show="lastScanMessage" :class="lastScanError ? 'error' : 'positive'" x-text="lastScanMessage"></div>
-        <div style="margin-top:16px;" class="summary-line">
-          <span>Session scanned</span>
-          <strong x-text="scannedItems.length"></strong>
-        </div>
-        <div style="margin-top:10px;">
-          <template x-if="scannedItems.length === 0">
-            <p class="note">No codes scanned yet.</p>
-          </template>
-          <template x-for="item in scannedItems.slice(0, 12)" :key="item.code + item.timeStamp">
-            <div class="list-item" :style="item.duplicate ? 'border-color: #fca5a5; background: #fef2f2;' : item.known ? 'border-color: #bef264; background: #ecfccb;' : 'border-color: #cbd5e1; background: #f8fafc;'">
-              <div style="display:flex; justify-content:space-between; gap:10px; align-items:center;">
-                <span class="code-pill" x-text="item.code"></span>
-                <span class="badge" x-text="item.duplicate ? 'Duplicate' : item.known ? 'Known' : 'Unknown'"></span>
-              </div>
-              <div class="note" x-text="item.timeText"></div>
+          <div class="settings-card">
+            <h2>Sheets</h2>
+            <div class="settings-row" style="margin-bottom:8px;">
+              <span class="chip" x-text="selectedScanSheet ? 'Scan: ' + selectedScanSheet.name : 'Scan sheet not set'"></span>
+              <span class="chip" x-text="selectedMasterSheet ? 'Master: ' + selectedMasterSheet.name : 'Master sheet not set'"></span>
             </div>
-          </template>
-        </div>
-      </div>
+            <div class="settings-row" style="margin-bottom:12px;">
+              <button class="button button-secondary" @click="refreshDriveSheets()">Refresh sheets</button>
+              <button class="button button-secondary" @click="loadMasterValues()" :disabled="!selectedMasterSheet">Reload master</button>
+              <button class="button button-secondary" @click="openSelectedSheet(selectedScanSheet)" :disabled="!selectedScanSheet">Open scan sheet</button>
+            </div>
+            <template x-if="driveSheets.length === 0">
+              <div class="status">No spreadsheets found in Drive.</div>
+            </template>
+            <div class="settings-row" style="align-items:flex-start; gap:14px;">
+              <div style="flex:1;">
+                <div class="note" style="font-weight:600; margin-bottom:6px;">Scan targets</div>
+                <template x-for="sheet in driveSheets.slice(0, 7)" :key="sheet.id">
+                  <button class="button button-secondary" style="width:100%; text-align:left; margin-bottom:10px;" @click="setScanSheet(sheet)">
+                    <strong x-text="sheet.name"></strong>
+                    <div class="note" x-text="formatDate(sheet.modifiedTime)"></div>
+                  </button>
+                </template>
+              </div>
+              <div style="flex:1;">
+                <div class="note" style="font-weight:600; margin-bottom:6px;">Master lists</div>
+                <template x-for="sheet in driveSheets.slice(0, 7)" :key="sheet.id + '-m'">
+                  <button class="button button-secondary" style="width:100%; text-align:left; margin-bottom:10px;" @click="setMasterSheet(sheet)">
+                    <strong x-text="sheet.name"></strong>
+                    <div class="note" x-text="formatDate(sheet.modifiedTime)"></div>
+                  </button>
+                </template>
+              </div>
+            </div>
+            <div class="settings-row" style="margin-top:12px;">
+              <input class="field" style="flex:1;" type="text" placeholder="New sheet name" x-model="newSheetName" />
+              <button class="button" @click="createSheet('scan')">Create scan sheet</button>
+              <button class="button" @click="createSheet('master')">Create master sheet</button>
+            </div>
+          </div>
 
-      <div class="card">
-        <div class="section-title">
-          <div>
-            <h2>Master reference</h2>
-            <p class="note">The app checks every scanned code against this master list.</p>
+          <div class="settings-card full">
+            <h2>Recent sheets</h2>
+            <ul class="list">
+              <template x-if="recentSheets.length === 0">
+                <li class="list-item"><span class="note">No recent sheets saved yet.</span></li>
+              </template>
+              <template x-for="sheet in recentSheets" :key="sheet.id">
+                <li class="list-item" style="display:grid; gap:10px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+                    <div>
+                      <div><strong x-text="sheet.name"></strong></div>
+                      <div class="note" x-text="sheet.purpose"></div>
+                    </div>
+                    <div>
+                      <button class="button button-secondary" @click="selectRecent(sheet)">Select</button>
+                    </div>
+                  </div>
+                </li>
+              </template>
+            </ul>
           </div>
         </div>
-        <div class="summary-line">
-          <span>Loaded records</span>
-          <strong x-text="masterCodes.length"></strong>
-        </div>
-        <p class="note">Use the master sheet to store your full inventory reference list in column A. The app reads the first sheet and first column.</p>
-        <div style="margin-top:18px;">
-          <button class="button" @click="loadMasterValues()" :disabled="!selectedMasterSheet">Reload master data</button>
-          <button class="button button-secondary" @click="openSelectedSheet(selectedMasterSheet)" :disabled="!selectedMasterSheet">Open master sheet</button>
-        </div>
-      </div>
-    </div>
+      </section>
+    </main>
+  </div>
 
-    <div class="card">
-      <div class="section-title">
-        <div>
-          <h2>How to use</h2>
-        </div>
+  <div class="action-overlay" x-show="actionOverlayOpen" x-transition>
+    <div class="action-card">
+      <div class="action-title">Scanned code</div>
+      <div class="action-code" x-text="pendingCode"></div>
+      <div class="action-sub">Choose what to do with this code</div>
+      <div class="action-buttons">
+        <button class="button" @click="applyScanAction('add')">+1</button>
+        <button class="button button-secondary" @click="applyScanAction('subtract')">-1</button>
+        <button class="button button-danger" @click="applyScanAction('remove')">remove</button>
+        <button class="button button-secondary" @click="dismissAction()">close</button>
       </div>
-      <ol class="note" style="padding-left: 18px;">
-        <li>Set your Google OAuth client ID and connect your account.</li>
-        <li>Choose or create a scan sheet and a master reference sheet.</li>
-        <li>Open the app on your phone, start the camera, and scan QR codes.</li>
-        <li>If a code is duplicate, the app warns you immediately.</li>
-        <li>The scan sheet grows automatically with each new code.</li>
-      </ol>
     </div>
   </div>
 
@@ -285,6 +438,11 @@ var inventoryApp = {
   scannerRunning: false,
   scannerAvailable: true,
   showSettings: true,
+  activeScreen: 'scan',
+  actionOverlayOpen: false,
+  pendingCode: '',
+  resumeAfterAction: false,
+  scannerPaused: false,
   init() {
     this.loadSettings();
     this.currentOrigin = window.location.protocol === 'file:' ? 'file://' : location.origin;
@@ -531,12 +689,13 @@ var inventoryApp = {
     try {
       const title = await this.getFirstSheetName(this.selectedScanSheet.id);
       if (!title) return;
-      const values = await this.fetchSheetValues(this.selectedScanSheet.id, `${encodeURIComponent(title)}!A:A`);
-      const codes = values.filter(code => code !== '');
+      const rows = await this.fetchSheetRows(this.selectedScanSheet.id, `${encodeURIComponent(title)}!A:B`);
+      const codes = rows.filter(row => row[0]);
       this.scannedItems = [];
-      codes.reverse().forEach(code => {
-        const duplicate = this.scannedItems.some(item => item.code === code);
-        this.scannedItems.push({ code, duplicate, known: this.masterCodes.includes(code), timeStamp: new Date().toISOString(), timeText: 'Loaded from sheet' });
+      codes.reverse().forEach(row => {
+        const code = String(row[0] || '').trim();
+        const count = Number(row[1] || 0) || 0;
+        this.scannedItems.push({ code, action: 'loaded', count, timeStamp: new Date().toISOString(), timeText: 'Loaded from sheet' });
       });
       this.updateStatus('Loaded scan history from selected sheet.');
     } catch (error) {
@@ -558,6 +717,38 @@ var inventoryApp = {
     const data = await response.json();
     if (data.error) throw new Error(data.error.message || 'Unable to fetch values.');
     return (data.values || []).map(row => String(row[0] || '').trim()).filter((row, idx) => idx === 0 || row !== '');
+  },
+  async fetchSheetRows(sheetId, range) {
+    const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}`, {
+      headers: { Authorization: 'Bearer ' + this.accessToken }
+    });
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message || 'Unable to fetch values.');
+    return data.values || [];
+  },
+  async updateSheetRow(title, rowIndex, values) {
+    const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${this.selectedScanSheet.id}/values/${encodeURIComponent(title)}!A${rowIndex}:B${rowIndex}?valueInputOption=RAW`, {
+      method: 'PUT',
+      headers: {
+        Authorization: 'Bearer ' + this.accessToken,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ values: [values] })
+    });
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message || 'Could not update row.');
+  },
+  async appendSheetRow(title, values) {
+    const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${this.selectedScanSheet.id}/values/${encodeURIComponent(title)}!A:B:append?valueInputOption=RAW`, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + this.accessToken,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ values: [values] })
+    });
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message || 'Could not append row.');
   },
   async appendScanRecord(code) {
     if (!this.selectedScanSheet || !this.signedIn || !this.accessToken) return;
@@ -591,20 +782,79 @@ var inventoryApp = {
   processCode(rawCode) {
     const code = String(rawCode).trim();
     if (!code) return;
-    const duplicate = this.scannedItems.some(item => item.code === code);
-    const known = this.masterCodes.includes(code);
-    const details = { code, duplicate, known, timeStamp: new Date().toISOString(), timeText: new Date().toLocaleTimeString() };
-    if (duplicate) {
-      this.scannedItems.unshift(details);
-      this.updateScanStatus('Duplicate code detected: ' + code, true);
-      return;
-    }
-    this.scannedItems.unshift(details);
-    this.appendScanRecord(code);
-    this.updateScanStatus(known ? 'Scanned: ' + code : 'Scanned unknown: ' + code, false);
+    this.handleDetectedCode(code);
+  },
+  handleDetectedCode(code) {
+    if (this.actionOverlayOpen) return;
+    this.pendingCode = code;
+    this.actionOverlayOpen = true;
+    this.pauseScanner();
+  },
+  dismissAction() {
+    this.actionOverlayOpen = false;
+    this.pendingCode = '';
+    this.resumeScanner();
+  },
+  async applyScanAction(action) {
+    const code = this.pendingCode;
+    if (!code) return;
+    // this.actionOverlayOpen = false;
+    // this.pendingCode = '';
+    await this.updateScanSheetCount(code, action);
+    // this.resumeScanner();
+  },
+  recordScanAction(code, action, count) {
+    const label = action === 'add' ? 'Added +1' : action === 'subtract' ? 'Subtracted -1' : 'Removed';
+    this.scannedItems.unshift({ code, action: label, count, timeStamp: new Date().toISOString(), timeText: new Date().toLocaleTimeString() });
     if (this.scannedItems.length > 100) this.scannedItems.pop();
   },
+  async updateScanSheetCount(code, action) {
+    if (!this.selectedScanSheet || !this.signedIn || !this.accessToken) {
+      this.updateStatus('Select a scan sheet and sign in first.', true);
+      this.updateScanStatus('Scan sheet not ready.', true);
+      return;
+    }
+    try {
+      const title = await this.getFirstSheetName(this.selectedScanSheet.id);
+      if (!title) throw new Error('Unable to detect scan sheet name.');
+      const rows = await this.fetchSheetRows(this.selectedScanSheet.id, `${encodeURIComponent(title)}!A:B`);
+      let rowIndex = -1;
+      let currentCount = 0;
+      rows.forEach((row, idx) => {
+        const value = String(row[0] || '').trim();
+        if (value === code) {
+          rowIndex = idx + 1;
+          currentCount = Number(row[1] || 0) || 0;
+        }
+      });
+      if (action === 'remove') {
+        if (rowIndex === -1) {
+          this.updateScanStatus('Code not found in sheet: ' + code, true);
+        } else {
+          await this.updateSheetRow(title, rowIndex, ['', '']);
+          this.recordScanAction(code, 'remove', 0);
+          this.updateScanStatus('Removed code: ' + code, false);
+        }
+        return;
+      }
+      const nextCount = action === 'add' ? currentCount + 1 : currentCount - 1;
+      if (rowIndex === -1) {
+        await this.appendSheetRow(title, [code, String(nextCount)]);
+      } else {
+        await this.updateSheetRow(title, rowIndex, [code, String(nextCount)]);
+      }
+      this.recordScanAction(code, action, nextCount);
+      this.updateScanStatus((action === 'add' ? 'Added +1: ' : 'Subtracted -1: ') + code, false);
+    } catch (error) {
+      console.error(error);
+      this.updateScanStatus('Sheet update failed: ' + (error.message || 'unknown'), true);
+    }
+  },
   async toggleScanner() {
+    if (this.actionOverlayOpen) {
+      this.updateScanStatus('Close the action screen before scanning.', true);
+      return;
+    }
     if (this.scannerRunning) {
       this.stopScanner();
       return;
@@ -623,6 +873,7 @@ var inventoryApp = {
         (decodedText) => { this.processCode(decodedText); }
       );
       this.scannerRunning = true;
+      this.scannerPaused = false;
       this.scannerAvailable = true;
       this.updateStatus('Camera ready. Scan a code.')
     } catch (error) {
@@ -637,6 +888,28 @@ var inventoryApp = {
       this.scanner.clear();
     }
     this.scannerRunning = false;
+    this.scannerPaused = false;
+  },
+  async pauseScanner() {
+    this.resumeAfterAction = this.scannerRunning;
+    if (!this.scanner || !this.scannerRunning) return;
+    if (typeof this.scanner.pause === 'function') {
+      this.scanner.pause(true);
+      this.scannerPaused = true;
+    } else {
+      await this.stopScanner();
+    }
+  },
+  async resumeScanner() {
+    if (!this.resumeAfterAction) return;
+    if (this.scanner && this.scannerPaused && typeof this.scanner.resume === 'function') {
+      this.scanner.resume();
+      this.scannerPaused = false;
+      this.scannerRunning = true;
+    } else if (!this.scannerRunning) {
+      await this.toggleScanner();
+    }
+    this.resumeAfterAction = false;
   },
   openSelectedSheet(sheet) {
     if (!sheet) return;
