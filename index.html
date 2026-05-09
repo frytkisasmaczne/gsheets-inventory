@@ -320,10 +320,6 @@
               <span class="status" :class="statusClass" x-text="statusMessage"></span>
               <span class="chip" x-text="signedIn ? 'Signed in' : 'Signed out'"></span>
             </div>
-            <label>
-              <div class="note">Google OAuth Client ID</div>
-              <input class="field" type="text" placeholder="Enter your OAuth Client ID" x-model="clientId" @change="saveSettings()" />
-            </label>
             <div class="settings-row" style="margin-top:12px;">
               <button class="button" @click="signIn()">Connect Google</button>
               <button type="button" class="button button-secondary" @click="signOut()">Disconnect</button>
@@ -375,10 +371,10 @@
           <div class="settings-card full">
             <h2>Recent sheets</h2>
             <ul class="list">
-              <template x-if="recentSheets.length === 0">
+              <template x-if="(recentSheets || []).length === 0">
                 <li class="list-item"><span class="note">No recent sheets saved yet.</span></li>
               </template>
-              <template x-for="sheet in recentSheets" :key="sheet.id">
+              <template x-for="sheet in (recentSheets || [])" :key="sheet.id">
                 <li class="list-item" style="display:grid; gap:10px;">
                   <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
                     <div>
@@ -402,6 +398,7 @@
     <div class="action-card">
       <div class="action-title">Scanned code</div>
       <div class="action-code" x-text="pendingCode"></div>
+      <div class="action-sub" x-text="pendingLabel || ''" style="margin-bottom:8px;"></div>
       <div class="action-sub">Choose what to do with this code</div>
       <div class="action-buttons">
         <button class="button" @click="applyScanAction('add')">+1</button>
@@ -417,7 +414,7 @@
 var tokenClient;
 const tokenStorageKey = 'gsinv-token';
 var inventoryApp = {
-  clientId: '',
+  clientId: '261664134193-ll4kfhrv09q540jce0913hebd9ea8qeb.apps.googleusercontent.com',
   accessToken: '',
   signedIn: false,
   signedInAt: null,
@@ -430,6 +427,7 @@ var inventoryApp = {
   currentOrigin: '',
   newSheetName: '',
   masterCodes: [],
+  masterLookup: {},
   scanCodeText: '',
   lastScanMessage: '',
   lastScanError: false,
@@ -441,6 +439,7 @@ var inventoryApp = {
   activeScreen: 'scan',
   actionOverlayOpen: false,
   pendingCode: '',
+  pendingLabel: '',
   resumeAfterAction: false,
   scannerPaused: false,
   init() {
@@ -454,6 +453,9 @@ var inventoryApp = {
     if (this.isTokenStored()) {
       this.updateStatus('Signed in from saved session. Loading sheets...');
       this.refreshDriveSheets();
+      if (this.selectedMasterSheet) {
+        this.loadMasterValues();
+      }
     }
     this.waitForGis();
   },
@@ -484,7 +486,7 @@ var inventoryApp = {
       this.clientId = payload.clientId || '';
       this.selectedScanSheet = payload.selectedScanSheet || null;
       this.selectedMasterSheet = payload.selectedMasterSheet || null;
-      this.recentSheets = payload.recentSheets || [];
+      this.recentSheets = Array.isArray(payload.recentSheets) ? payload.recentSheets : [];
     } catch (error) {
       console.warn('Unable to read settings', error);
     }
@@ -519,7 +521,7 @@ var inventoryApp = {
   },
   prepareTokenClient() {
     tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: "261664134193-ll4kfhrv09q540jce0913hebd9ea8qeb.apps.googleusercontent.com",
+      client_id: this.clientId,
       scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/spreadsheets',
       callback: this.fumocallback
     });
@@ -675,12 +677,24 @@ var inventoryApp = {
     try {
       const title = await this.getFirstSheetName(this.selectedMasterSheet.id);
       if (!title) throw new Error('Unable to detect sheet name.');
-      const values = await this.fetchSheetValues(this.selectedMasterSheet.id, `${encodeURIComponent(title)}!A:A`);
-      this.masterCodes = values.filter(code => code !== '');
+      const rows = await this.fetchSheetRows(this.selectedMasterSheet.id, `${encodeURIComponent(title)}!A:B`);
+      this.masterCodes = [];
+      this.masterLookup = {};
+      rows.forEach(row => {
+        const code = String(row[0] || '').trim();
+        const label = String(row[1] || '').trim();
+        if (code) {
+          this.masterCodes.push(code);
+          if (label) {
+            this.masterLookup[code] = label;
+          }
+        }
+      });
       this.updateStatus('Master list loaded with ' + this.masterCodes.length + ' codes.');
     } catch (error) {
       console.error(error);
       this.masterCodes = [];
+      this.masterLookup = {};
       this.updateStatus('Failed to load master list: ' + (error.message || 'unknown error'), true);
     }
   },
@@ -787,12 +801,14 @@ var inventoryApp = {
   handleDetectedCode(code) {
     if (this.actionOverlayOpen) return;
     this.pendingCode = code;
+    this.pendingLabel = this.masterLookup[code] || '';
     this.actionOverlayOpen = true;
     this.pauseScanner();
   },
   dismissAction() {
     this.actionOverlayOpen = false;
     this.pendingCode = '';
+    this.pendingLabel = '';
     this.resumeScanner();
   },
   async applyScanAction(action) {
@@ -800,6 +816,7 @@ var inventoryApp = {
     if (!code) return;
     // this.actionOverlayOpen = false;
     // this.pendingCode = '';
+    // this.pendingLabel = '';
     await this.updateScanSheetCount(code, action);
     // this.resumeScanner();
   },
